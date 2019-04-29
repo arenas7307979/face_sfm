@@ -36,6 +36,7 @@ public:
         nh.getParam("k2", k2);
         nh.getParam("p1", p1);
         nh.getParam("p2", p2);
+        camera = std::make_shared<Pinhole>(width, height, fx, fy, cx, cy, k1, k2, p1, p2);
         pub_face = nh.advertise<sensor_msgs::PointCloud>("/face", 1000);
     }
 
@@ -62,7 +63,7 @@ public:
         point_3d(2) = triangulated_point(2) / triangulated_point(3);
     }
 
-    bool solveRelativeRT(std::vector<cv::Point2f> &ll, std::vector<cv::Point2f> rr, Eigen::Matrix3d &Rotation, Eigen::Vector3d &Translation)
+    bool solveRelativeRT(std::vector<cv::Point2f>& ll, std::vector<cv::Point2f>& rr, Eigen::Matrix3d &Rotation, Eigen::Vector3d &Translation)
     {
 #if 1
         cv::Mat mask;
@@ -136,11 +137,11 @@ public:
         //Instrinc / distoration parameter
         cv::Mat K =(cv::Mat_<double>(3,3)<<fx, 0, cx, 0, fy, cy, 0, 0, 1);
         cv::Mat_<double> Distort(1,4); Distort <<k1, k2, p1 , p2;
-        un_pts_im.resize(face_pts.size());
-        un_pts_n.resize(face_pts.size());
-        frame_pose.resize(face_pts.size());
-        un_pt2f_n.resize(face_pts.size());
-        un_pts_n_3dim.resize(face_pts.size());
+        un_pts_im.resize(images.size());
+        un_pts_n.resize(images.size());
+        frame_pose.resize(images.size());
+        un_pt2f_n.resize(images.size());
+        un_pts_n_3dim.resize(images.size());
         //set Twc0
         Eigen::Matrix3d I;
         I.setIdentity();
@@ -148,19 +149,23 @@ public:
         frame_pose[0] = Twc0;
 
         //get undistorted point
-        for(int i = 0; i < images.size(); i++){
-            cv::undistortPoints(face_pts[i], un_pts_im[i], K, Distort);
-            for(int j=0; j < un_pts_im[i].size(); j++){
-                un_pts_n[i].push_back(Eigen::Vector2d(un_pts_im[i][j].x, un_pts_im[i][j].y));
-                un_pt2f_n[i].push_back(cv::Point2f(un_pts_im[i][j].x, un_pts_im[i][j].y));
-                un_pts_n_3dim[i].push_back(Eigen::Vector3d(un_pts_im[i][j].x, un_pts_im[i][j].y, 1));
-                un_pts_im[i][j].x = un_pts_im[i][j].x * fx + cx;
-                un_pts_im[i][j].y = un_pts_im[i][j].y * fy + cy;
+        for(int i = 0; i < face_pts.size(); i++){
+            //cv::undistortPoints(face_pts[i], un_pts_im[i], K, Distort);
+            for(int j=0; j < face_pts[i].size(); j++){
+                Eigen::Vector3d pt_n = camera->BackProject(Eigen::Vector2d(face_pts[i][j].x, face_pts[i][j].y));
+                un_pts_n[i].push_back(Eigen::Vector2d(pt_n.x(), pt_n.y()));
+                un_pt2f_n[i].push_back(cv::Point2f(pt_n.x(), pt_n.y()));
+                un_pts_n_3dim[i].push_back(Eigen::Vector3d(pt_n.x(), pt_n.y(), 1));
+                std::cout << "pt_n=" << pt_n << std::endl;
             }
             //std::cout << face_pts[i][0] << " / " << un_pts_n[i][0] <<std::endl;
         }
 
+        std::cout << "0" <<std::endl;
+
         int f_id = findInitFrame();
+
+        std::cout << "1" <<std::endl;
 
         //Estimate init Pose
         Eigen::Matrix3d Rotation; Eigen::Vector3d Translation;
@@ -172,6 +177,9 @@ public:
         //std::cout << "f_id=" << f_id <<std::endl;
         //std::cout << "Twc0 = " << frame_pose[f_id].matrix() <<std::endl;
         int fail = 0;
+
+
+        std::cout << "2" <<std::endl;
 
         //Triangulate 2 frame to estimate 3d points
         {
@@ -192,6 +200,8 @@ public:
                 x3Dw_eigen.push_back(Xw);
             }
         }
+
+        std::cout << "3" <<std::endl;
         //slove pnp
         cv::Mat_<double> Dis_0(1,4);
         cv::Mat K0 =(cv::Mat_<double>(3,3)<<1, 0, 0, 0, 1, 0, 0, 0, 1);
@@ -213,6 +223,8 @@ public:
             frame_pose[k] = Tckw.inverse();
         }
 
+
+        std::cout << "4" <<std::endl;
         //global BA
         ceres::Problem problem;
         ceres::LossFunction* loss_function = new::ceres::CauchyLoss(1);
