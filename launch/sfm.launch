@@ -1,0 +1,29 @@
+
+<launch>
+    <arg name="width" default="640"/>
+    <arg name="height" default="480"/>
+    <arg name="fx" default="626.54488961"/>
+    <arg name="fy" default="629.73129574"/>
+    <arg name="cx" default="322.95335308"/>
+    <arg name="cy" default="231.58177416"/>
+    <arg name="k1" default="-0.037786691570204756"/>
+    <arg name="k2" default="-0.02727938041296039"/>
+    <arg name="p1" default="-8.325302839411347e-05"/>
+    <arg name="p2" default="0.00035372918050538993"/>
+    <arg name="bag_file" default="/datasets/face_ws/carl.bag"/>
+
+    <node name="face_sfm" pkg="face_sfm" type="face_sfm" output="screen" args="$(arg bag_file)">
+        <param name="width" type="int" value="$(arg width)"/>
+        <param name="height" type="int" value="$(arg height)"/>
+        <param name="fx" type="double" value="$(arg fx)"/>
+        <param name="fy" type="double" value="$(arg fy)"/>
+        <param name="cx" type="double" value="$(arg cx)"/>
+        <param name="cy" type="double" value="$(arg cy)"/>
+        <param name="k1" type="double" value="$(arg k1)"/>
+        <param name="k2" type="double" value="$(arg k2)"/>
+        <param name="p1" type="double" value="$(arg p1)"/>
+	<param name="p2" type="double" value="$(arg p2)"/>
+    </node>
+
+    <node name="rviz" pkg="rviz" type="rviz" output="screen" args="-d $(find face_sfm)/rviz/face_sfm.rviz"/>
+</launch>
