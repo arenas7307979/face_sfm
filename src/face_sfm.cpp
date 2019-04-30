@@ -1,4 +1,3 @@
-#include "face_sfm.h"
 #include <opencv2/opencv.hpp>
 #include <rosbag/view.h>
 #include <ros/ros.h>
@@ -11,13 +10,13 @@
 #include <cv_bridge/cv_bridge.h>
 #include <boost/foreach.hpp>
 #include <ceres/ceres.h>
-#include "ceres/local_parameterization_se3.h"
+#include "local_parameterization.h"
 #include <sophus/se3.hpp>
 #include <sensor_msgs/PointCloud.h>
 #include <thread>
 #include <Eigen/Dense>
 #include <opencv2/core/eigen.hpp>
-#include "ceres/factor.h"
+#include "factor.h"
 #include "camera.h"
 #define foreach BOOST_FOREACH
 
@@ -71,7 +70,7 @@ public:
         cv::Mat cameraMatrix = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1);
         cv::Mat rot, trans;
         int inlier_cnt = cv::recoverPose(E, ll, rr, cameraMatrix, rot, trans, mask);
-        //cout << "inlier_cnt " << inlier_cnt << endl;
+        // << "inlier_cnt " << inlier_cnt << endl;
 
         Eigen::Matrix3d R;
         Eigen::Vector3d T;
@@ -132,7 +131,7 @@ public:
     };
 
     void process(){
-        //std::cout << "images / facePts sz = " << images.size() << " / " << face_pts.size() <<std::endl;
+        std::cout << "images / facePts sz = " << images.size() << " / " << face_pts[0].size() <<std::endl;
 
         //Instrinc / distoration parameter
         cv::Mat K =(cv::Mat_<double>(3,3)<<fx, 0, cx, 0, fy, cy, 0, 0, 1);
@@ -149,16 +148,16 @@ public:
         frame_pose[0] = Twc0;
 
         //get undistorted point
-        for(int i = 0; i < face_pts.size(); i++){
-            //cv::undistortPoints(face_pts[i], un_pts_im[i], K, Distort);
-            for(int j=0; j < face_pts[i].size(); j++){
-                Eigen::Vector3d pt_n = camera->BackProject(Eigen::Vector2d(face_pts[i][j].x, face_pts[i][j].y));
-                un_pts_n[i].push_back(Eigen::Vector2d(pt_n.x(), pt_n.y()));
-                un_pt2f_n[i].push_back(cv::Point2f(pt_n.x(), pt_n.y()));
-                un_pts_n_3dim[i].push_back(Eigen::Vector3d(pt_n.x(), pt_n.y(), 1));
-                std::cout << "pt_n=" << pt_n << std::endl;
+        for(int i = 0; i < images.size(); i++){
+            cv::undistortPoints(face_pts[i], un_pts_im[i], K, Distort);
+            for(int j = 0; j < un_pts_im[i].size(); j++){
+                un_pts_n[i].push_back(Eigen::Vector2d(un_pts_im[i][j].x, un_pts_im[i][j].y));
+                un_pt2f_n[i].push_back(cv::Point2f(un_pts_im[i][j].x, un_pts_im[i][j].y));
+                un_pts_n_3dim[i].push_back(Eigen::Vector3d(un_pts_im[i][j].x, un_pts_im[i][j].y, 1));
+                un_pts_im[i][j].x = un_pts_im[i][j].x * fx + cx;
+                un_pts_im[i][j].y = un_pts_im[i][j].y * fy + cy;
             }
-            //std::cout << face_pts[i][0] << " / " << un_pts_n[i][0] <<std::endl;
+            //std::cout << un_pts_n.size() << " / " << un_pts_n[i].size() <<std::endl;
         }
 
         std::cout << "0" <<std::endl;
@@ -173,9 +172,6 @@ public:
         Sophus::SE3d Tci_c0(Rotation, Translation);
         //Twci
         frame_pose[f_id]  = Twc0 * Tci_c0.inverse();
-
-        //std::cout << "f_id=" << f_id <<std::endl;
-        //std::cout << "Twc0 = " << frame_pose[f_id].matrix() <<std::endl;
         int fail = 0;
 
 
@@ -185,29 +181,28 @@ public:
         {
             Eigen::Matrix<double, 3, 4> P;
             Eigen::Matrix<double, 3, 4> P_I;
+            x3Dw_eigen.clear();
             P_I << frame_pose[0].inverse().rotationMatrix(), frame_pose[0].inverse().translation();
             P << frame_pose[f_id].inverse().rotationMatrix(), frame_pose[f_id].inverse().translation();
             for(int j=0; j < un_pts_n[0].size(); j++){
                 Eigen::Vector3d Xw, Xc0;
                 triangulatePoint(P_I, P, un_pts_n[0][j], un_pts_n[f_id][j], Xw); //get depth in camera 0 (WORLD)
+                if(Xw.z() < 0)
+                Xw.z() = 2;
 
-                if(1)
-                    Xw.z() = 2;
-                //Xc0 = un_pts_n_3dim[0][j] * 5.0;
-                //Xw = frame_pose[0] * Xc0;
-
+//                Xc0 = un_pts_n_3dim[0][j] * 5.0;
+//                Xw = frame_pose[0] * Xc0;
                 x3Dw.push_back(cv::Point3d(Xw.x(), Xw.y(), Xw.z()));
                 x3Dw_eigen.push_back(Xw);
             }
         }
 
-        std::cout << "3" <<std::endl;
         //slove pnp
         cv::Mat_<double> Dis_0(1,4);
         cv::Mat K0 =(cv::Mat_<double>(3,3)<<1, 0, 0, 0, 1, 0, 0, 0, 1);
         Dis_0 << 0, 0, 0, 0;
 
-        for(int k = 0; k < images.size(); k++){
+        for(int k = 1; k < images.size(); k++){
             cv::Mat rvec, tvec;
 
             //Tcw
@@ -221,35 +216,36 @@ public:
             cv::cv2eigen(tvec, tcw);
             Sophus::SE3d Tckw(Rcw, tcw);
             frame_pose[k] = Tckw.inverse();
+            //std::cout << "Trans=" << frame_pose[k].translation() <<std::endl;
         }
 
 
         std::cout << "4" <<std::endl;
         //global BA
         ceres::Problem problem;
-        ceres::LossFunction* loss_function = new::ceres::CauchyLoss(1);
+        ceres::LossFunction* loss_function = new ceres::CauchyLoss(1);
         ceres::LocalParameterization* local_para_se3 = new LocalParameterizationSE3();
         double *para_pose = new double[frame_pose.size() * 7];
         double *para_x3Dw = new double[x3Dw_eigen.size() * 3];
 
-        for(int id = 0; id < frame_pose.size(); id++){
-            std::memcpy(para_pose + 7 * id, frame_pose[id].data(), sizeof(double) *7);
-            problem.AddParameterBlock(para_pose + 7 * id, 7, local_para_se3);
-            if(id == 0){
+        for(int i = 0; i < frame_pose.size(); i++){
+            std::memcpy(para_pose + 7 * i, frame_pose[i].data(), sizeof(double) *7);
+            problem.AddParameterBlock(para_pose + 7 * i, 7, local_para_se3);
+            if(i == 0){
                 problem.SetParameterBlockConstant(para_pose); //para_pose + 7 * id = para_pose ;(id==0)
             }
         }
 
-
-
-        for(int i = 0; i < x3Dw_eigen.size(); i++){
-            std::memcpy(para_x3Dw + 3 * i, x3Dw_eigen[i].data(), sizeof(double) * 3);
+        for(int id = 0; id < x3Dw_eigen.size(); id++){
+            std::memcpy(para_x3Dw + 3 * id, x3Dw_eigen[id].data(), sizeof(double) * 3);
+            for(int g = 0; g < 3; g++){
+            }
         }
 
-        for(int i = 0; i < x3Dw.size(); i++){
+        for(int id = 0; id < x3Dw.size(); id++){
             for(int obs = 0; obs < frame_pose.size(); obs++){
-                auto factor = ProjectionFactor::Create(un_pts_n_3dim[obs][i], fx);
-                problem.AddResidualBlock(factor, loss_function, para_pose + 7 * obs, para_x3Dw + 3 * i);
+                auto factor = ProjectionFactor::Create(un_pts_n_3dim[obs][id], fx);
+                problem.AddResidualBlock(factor, NULL, para_pose + 7 * obs, para_x3Dw + 3 * id);
             }
         }
 
@@ -268,10 +264,10 @@ public:
             std::memcpy(frame_pose[i].data(), para_pose + 7 * i, sizeof(double) * 7);
 
         for(int i = 0, n = x3Dw_eigen.size(); i < n; ++i){
-            std::cout << "x3Dw_eigen[i] bf = " << x3Dw_eigen[i] <<std::endl;
             std::memcpy(x3Dw_eigen[i].data(), para_x3Dw + 3 * i, sizeof(double) * 3);
-            std::cout << "x3Dw_eigen[i] af = " << x3Dw_eigen[i] <<std::endl;
         }
+
+
         // release
         delete [] para_pose;
         delete [] para_x3Dw;
@@ -281,11 +277,11 @@ public:
             sensor_msgs::PointCloud face_msg;
             face_msg.header.frame_id = "world";
 
-            for(auto& lm : x3Dw_eigen) {
+            for(int i = 0, n = x3Dw_eigen.size(); i < n; ++i){
                 geometry_msgs::Point32 pt;
-                pt.x = lm.x();
-                pt.y = lm.y();
-                pt.z = lm.z();
+                pt.x = x3Dw_eigen[i].x();
+                pt.y = x3Dw_eigen[i].y();
+                pt.z = x3Dw_eigen[i].z();
                 face_msg.points.emplace_back(pt);
             }
 
