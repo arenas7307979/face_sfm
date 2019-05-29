@@ -229,6 +229,8 @@ public:
         //而不是J.setIdentity();
         ceres::LocalParameterization* local_para_se3 = new LocalParameterizationSE3();
         
+        
+        //sophus內部排序  qx qy qz qw(=1), tx ty tz
         double *para_pose = new double[frame_pose.size() * 7];
         double *para_x3Dw = new double[x3Dw_eigen.size() * 3];
 
