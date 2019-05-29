@@ -224,7 +224,11 @@ public:
         //global BA
         ceres::Problem problem;
         ceres::LossFunction* loss_function = new ceres::CauchyLoss(1);
+        //注意這邊應該採用autodiff::LocalParameterizationSE3 
+        //不論如何裡面computeJacobian內容必須為T.Dx_this_mul_exp_x_at_0();
+        //而不是J.setIdentity();
         ceres::LocalParameterization* local_para_se3 = new LocalParameterizationSE3();
+        
         double *para_pose = new double[frame_pose.size() * 7];
         double *para_x3Dw = new double[x3Dw_eigen.size() * 3];
 
