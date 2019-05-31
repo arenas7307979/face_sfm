@@ -231,7 +231,8 @@ public:
         
         
         //sophus內部排序  qx qy qz qw(=1), tx ty tz
-        //Eigen::quateriond 排序是 qw qx qy qz
+        //Eigen::quateriond 排序是 qx qy qz qw
+        //Ceres::quaterniod 排序是 qw qx qy qz
         double *para_pose = new double[frame_pose.size() * 7];
         double *para_x3Dw = new double[x3Dw_eigen.size() * 3];
 
